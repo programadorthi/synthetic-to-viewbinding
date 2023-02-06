@@ -6,6 +6,7 @@ import com.intellij.psi.util.parents
 import dev.programadorthi.migration.model.AndroidView
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.psiUtil.blockExpressionsOrSingle
 import org.jetbrains.kotlin.psi.psiUtil.findFunctionByName
 import org.jetbrains.kotlin.psi.psiUtil.getValueParameterList
 
@@ -59,8 +60,8 @@ internal class GroupieMigration(
         }
 
         tryUpdateViewAttachedOrDetachedFromWindow(bindingName = bindingName)
-
         tryReplaceSuperType(bindingName = bindingName)
+        tryAddInitializeBindingFunction(bindingName = bindingName)
     }
 
     private fun tryUpdateViewAttachedOrDetachedFromWindow(bindingName: String) {
@@ -85,6 +86,15 @@ internal class GroupieMigration(
             }
             addGenericImport("com.xwray.groupie.viewbinding.BindableItem")
         }
+    }
+
+    private fun tryAddInitializeBindingFunction(bindingName: String) {
+        val bindFunction = ktClass.findFunctionByName("bind") ?: return
+        val whitespace = psiFactory.createWhiteSpace("\n")
+        val function = psiFactory.createFunction("override fun initializeViewBinding(view: View): $bindingName =\n" +
+                "        $bindingName.bind(view)")
+        bindFunction.addBefore(whitespace, bindFunction)
+        bindFunction.addBefore(function, bindFunction)
     }
 
     private fun replaceFunctionParameterType(
