@@ -1,8 +1,6 @@
 package dev.programadorthi.migration.helper
 
-import com.intellij.psi.PsiClass
-import com.intellij.psi.util.InheritanceUtil
-import dev.programadorthi.migration.visitor.SyntheticReferenceVisitor
+import dev.programadorthi.migration.visitor.SyntheticReferenceRecursiveVisitor
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassBody
 import org.jetbrains.kotlin.psi.KtClassInitializer
@@ -20,19 +18,19 @@ abstract class ProcessCurrentClass(
         get() = mutableBindingsToImport
 
     fun collectAndMigrate() {
-        val visitor = SyntheticReferenceVisitor()
+        val visitor = SyntheticReferenceRecursiveVisitor()
         ktClass.accept(visitor)
-        if (visitor.syntheticReferences.isEmpty()) return
+        if (visitor.androidViews.isEmpty()) return
 
         // key: my_view_layout
         // value: layout root tag
-        val filesReferencedByCurrentClass = visitor.syntheticReferences.associate { androidView ->
+        val filesReferencedByCurrentClass = visitor.androidViews.associate { androidView ->
             androidView.layoutNameWithoutExtension to androidView.rootTagName
         }
 
         // key: my_view_layout
         // value: [androidView1, androidView2, androidView3, ...]
-        val syntheticsByLayout = visitor.syntheticReferences.groupBy { androidView ->
+        val syntheticsByLayout = visitor.androidViews.groupBy { androidView ->
             androidView.layoutNameWithoutExtension
         }
 
@@ -142,23 +140,5 @@ abstract class ProcessCurrentClass(
         private const val BINDING_PROPERTY_TEMPLATE = "private val %s by %s(%s::%s)"
         private const val SYNTHETIC_BINDING_AS_LAZY_TEMPLATE = "private val %s by lazy { %s }"
         private const val VIEW_BINDING_IMPORT_TEMPLATE = "%s.databinding.%s"
-
-        private const val ANDROID_ACTIVITY_CLASS = "android.app.Activity"
-        private const val ANDROID_DIALOG_CLASS = "android.app.Dialog"
-        private const val ANDROID_VIEW_CLASS = "android.view.View"
-        private const val ANDROID_VIEW_GROUP_CLASS = "android.view.ViewGroup"
-
-        fun getInstance(psiClass: PsiClass, ktClass: KtClass, packageName: String): ProcessCurrentClass? {
-            val parents = InheritanceUtil.getSuperClasses(psiClass)
-            for (parent in parents) {
-                if (parent.qualifiedName == ANDROID_ACTIVITY_CLASS || parent.qualifiedName == ANDROID_DIALOG_CLASS) {
-                    return ActivityProcessCurrentClass(packageName = packageName, ktClass = ktClass)
-                }
-                if (parent.qualifiedName == ANDROID_VIEW_CLASS || parent.qualifiedName == ANDROID_VIEW_GROUP_CLASS) {
-                    return ViewProcessCurrentClass(packageName = packageName, ktClass = ktClass)
-                }
-            }
-            return null
-        }
     }
 }
