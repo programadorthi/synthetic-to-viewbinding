@@ -1,4 +1,4 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.migration
 
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiParserFacade
@@ -11,12 +11,13 @@ import org.jetbrains.kotlin.psi.KtImportDirective
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.resolve.ImportPath
 
-object CheckAndMigrateFile {
+object FileMigration {
     private const val ANDROID_ACTIVITY_CLASS = "android.app.Activity"
     private const val ANDROID_DIALOG_CLASS = "android.app.Dialog"
     private const val ANDROID_VIEW_CLASS = "android.view.View"
     private const val ANDROID_VIEW_GROUP_CLASS = "android.view.ViewGroup"
-    private const val GROUPIE_CLASS = "com.xwray.groupie.kotlinandroidextensions.Item"
+    private const val GROUPIE_ITEM_CLASS = "com.xwray.groupie.kotlinandroidextensions.Item"
+    private const val GROUPIE_VIEW_HOLDER_CLASS = "com.xwray.groupie.kotlinandroidextensions.GroupieViewHolder"
 
     fun migrate(file: PsiFile, packageName: String) {
         val ktFile = file as? KtFile ?: return
@@ -35,29 +36,33 @@ object CheckAndMigrateFile {
             }
             val parents = InheritanceUtil.getSuperClasses(psiClass)
             for (parent in parents) {
-                if (parent.qualifiedName == ANDROID_ACTIVITY_CLASS || parent.qualifiedName == ANDROID_DIALOG_CLASS) {
-                    val process = ActivityProcessCurrentClass(packageName = packageName, ktClass = currentClass)
-                    process.collectAndMigrate()
-                    bindingsToImport.addAll(process.bindingToImport)
-                    break
+                val process: CommonMigration = when (parent.qualifiedName) {
+                    ANDROID_ACTIVITY_CLASS, ANDROID_DIALOG_CLASS -> ClassWithSetContentViewMigration(
+                        packageName = packageName,
+                        ktClass = currentClass,
+                    )
+
+                    ANDROID_VIEW_GROUP_CLASS, ANDROID_VIEW_CLASS -> ViewMigration(
+                        packageName = packageName,
+                        ktClass = currentClass,
+                    )
+
+                    GROUPIE_ITEM_CLASS, GROUPIE_VIEW_HOLDER_CLASS -> GroupieMigration(
+                        packageName = packageName,
+                        ktClass = currentClass,
+                    )
+
+                    else -> continue
                 }
-                if (parent.qualifiedName == ANDROID_VIEW_CLASS || parent.qualifiedName == ANDROID_VIEW_GROUP_CLASS) {
-                    val process = ViewProcessCurrentClass(packageName = packageName, ktClass = currentClass)
-                    process.collectAndMigrate()
-                    bindingsToImport.addAll(process.bindingToImport)
-                    break
-                }
-                if (parent.qualifiedName == GROUPIE_CLASS) {
-                    val process = GroupieProcessCurrentClass(packageName = packageName, ktClass = currentClass)
-                    process.collectAndMigrate()
-                    bindingsToImport.addAll(process.bindingToImport)
-                    break
-                }
+                process.doMigration()
+                bindingsToImport.addAll(process.bindingToImport)
             }
         }
+
         // Avoiding remove imports from class not supported yet
-        if (bindingsToImport.isEmpty()) return
-        updateImports(ktFile, syntheticImports, bindingsToImport)
+        if (bindingsToImport.isNotEmpty()) {
+            updateImports(ktFile, syntheticImports, bindingsToImport)
+        }
     }
 
     private fun updateImports(ktFile: KtFile, imports: List<KtImportDirective>, bindingToImport: Set<String>) {

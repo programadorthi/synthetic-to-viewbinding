@@ -1,15 +1,17 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.migration
 
 import com.intellij.psi.PsiElement
+import dev.programadorthi.migration.model.BindingFunction
+import dev.programadorthi.migration.model.BindingType
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassBody
-import org.jetbrains.kotlin.psi.KtPsiFactory
 
-internal class ActivityProcessCurrentClass(
+internal class ClassWithSetContentViewMigration(
     packageName: String,
     private val ktClass: KtClass,
-) : ProcessCurrentClass(packageName, ktClass) {
-    override fun process(
+) : CommonAndroidClassMigration(packageName, ktClass) {
+
+    override fun mapToFunctionAndType(
         bindingName: String,
         propertyName: String,
         rootTag: String,
@@ -20,7 +22,6 @@ internal class ActivityProcessCurrentClass(
         val layoutNameAsBinding = layoutNameAsBinding(layoutName)
         if (layoutNameAsBinding == bindingName) {
             val setContentViewWithBinding = SET_CONTENT_VIEW_TEMPLATE.format(propertyName)
-            val psiFactory = KtPsiFactory(ktClass.project)
             val expression = psiFactory.createExpression(setContentViewWithBinding)
             setContentView.replace(expression)
         }

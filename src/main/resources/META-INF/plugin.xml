@@ -32,7 +32,7 @@
     </extensions>
     <actions>
         <action id="dev.programadorthi.migration.MigrationAction"
-                class="dev.programadorthi.migration.MigrationAction" text="Migration synthetic to ViewBinding"
+                class="dev.programadorthi.migration.MigrationAction" text="Migrate Synthetic to ViewBinding"
                 description="Convert synthetic resources to ViewBinding">
             <add-to-group group-id="RefactoringMenu" anchor="last"/>
             <add-to-group group-id="UsageView.Popup" anchor="first"/>

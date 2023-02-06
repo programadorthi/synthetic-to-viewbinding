@@ -9,7 +9,7 @@ import com.intellij.psi.xml.XmlAttributeValue
 import com.intellij.psi.xml.XmlElementType
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
-import dev.programadorthi.migration.helper.AndroidView
+import dev.programadorthi.migration.model.AndroidView
 import org.jetbrains.kotlin.asJava.namedUnwrappedElement
 import org.jetbrains.kotlin.nj2k.postProcessing.resolve
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -182,8 +182,8 @@ class SyntheticReferenceRecursiveVisitor : KtVisitorVoid() {
      * doSomething()
      * doOtherSomething(something)
      * setOnClickListener {}
-     * super.onStart()       <-- here call expression is onStart() only
-     * something.apply {}    <-- here call expression is apply {} only
+     * super.onStart()       <-- onStart() is call expression only
+     * something.apply {}    <-- apply{} is call expression only
      */
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)

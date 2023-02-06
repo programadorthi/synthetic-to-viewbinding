@@ -12,7 +12,7 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.SlowOperations
-import dev.programadorthi.migration.helper.CheckAndMigrateFile
+import dev.programadorthi.migration.migration.FileMigration
 import dev.programadorthi.migration.notification.MigrationNotification
 import java.util.concurrent.FutureTask
 
@@ -85,7 +85,7 @@ class MigrationProcessor : AbstractLayoutCodeProcessor {
                             // this may be the cause of formatting artifacts
                             PsiDocumentManager.getInstance(myProject).commitDocument(document)
                         }
-                        CheckAndMigrateFile.migrate(file, packageName)
+                        FileMigration.migrate(file, packageName)
                     }
                 }
             } catch (pce: ProcessCanceledException) {
@@ -122,7 +122,7 @@ class MigrationProcessor : AbstractLayoutCodeProcessor {
     }
 
     companion object {
-        private fun getProgressText(): String = "Migrating code..."
+        private fun getProgressText(): String = "Migrating files..."
         fun getCommandName(): String = "Synthetic to ViewBinding"
     }
 }

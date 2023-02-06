@@ -1,31 +1,22 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.migration
 
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiReference
 import com.intellij.psi.util.parents
-import dev.programadorthi.migration.visitor.SyntheticReferenceRecursiveVisitor
+import dev.programadorthi.migration.model.AndroidView
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
-import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.psiUtil.findFunctionByName
 import org.jetbrains.kotlin.psi.psiUtil.getValueParameterList
 
-internal class GroupieProcessCurrentClass(
-    private val packageName: String,
+internal class GroupieMigration(
+    packageName: String,
     private val ktClass: KtClass,
-) {
-    private val psiFactory = KtPsiFactory(ktClass.project)
-    private val mutableBindingsToImport = mutableSetOf<String>()
+) : CommonMigration(packageName, ktClass) {
 
-    val bindingToImport: Set<String>
-        get() = mutableBindingsToImport
-
-    fun collectAndMigrate() {
-        val visitor = SyntheticReferenceRecursiveVisitor()
-        ktClass.containingKtFile.accept(visitor)
-        if (visitor.androidViews.isEmpty()) return
-
+    override fun process(androidViews: List<AndroidView>, viewHolderItemViews: List<PsiReference>) {
         val bindingReferences = mutableSetOf<String>()
-        for (view in visitor.androidViews) {
+        for (view in androidViews) {
             val parents = view.reference?.element?.parents(true) ?: continue
             for (parent in parents) {
                 if (parent !is KtNamedDeclaration) continue
@@ -37,19 +28,19 @@ internal class GroupieProcessCurrentClass(
                     layoutNameAsBinding = layoutNameAsBinding,
                 )
                 bindingReferences += layoutNameAsBinding
-                mutableBindingsToImport += VIEW_BINDING_IMPORT_TEMPLATE.format(packageName, layoutNameAsBinding)
+                addBindingToImport(layoutNameAsBinding = layoutNameAsBinding)
                 break
             }
             if (view.isIncludeTag) {
-                val expression = psiFactory.createExpression("${view.viewId}.root")
+                val expression = psiFactory.createExpression(provideBindingExpression(view))
                 view.reference.element.replace(expression)
             }
         }
 
         // itemView.layoutId can't be replaced by root.layoutId
-        if (visitor.viewHolderItemViews.isNotEmpty()) {
+        if (viewHolderItemViews.isNotEmpty()) {
             val property = psiFactory.createExpression("root")
-            for (itemView in visitor.viewHolderItemViews) {
+            for (itemView in viewHolderItemViews) {
                 itemView.element.replace(property)
             }
         }
@@ -59,7 +50,7 @@ internal class GroupieProcessCurrentClass(
 
         // Has current class references to multiple layouts? Is a generic ViewHolder?
         if (bindingReferences.size > 1) {
-            mutableBindingsToImport += "androidx.viewbinding.ViewBinding"
+            addGenericImport("androidx.viewbinding.ViewBinding")
         }
 
         val bindingName = when {
@@ -80,7 +71,7 @@ internal class GroupieProcessCurrentClass(
             parameters = onViewParams,
             layoutNameAsBinding = "GroupieViewHolder<$bindingName>",
         )
-        mutableBindingsToImport += "com.xwray.groupie.viewbinding.GroupieViewHolder"
+        addGenericImport("com.xwray.groupie.viewbinding.GroupieViewHolder")
     }
 
     private fun tryReplaceSuperType(bindingName: String) {
@@ -92,7 +83,7 @@ internal class GroupieProcessCurrentClass(
             for (old in oldSuperTypes) {
                 old.replace(superType)
             }
-            mutableBindingsToImport += "com.xwray.groupie.viewbinding.BindableItem"
+            addGenericImport("com.xwray.groupie.viewbinding.BindableItem")
         }
     }
 
@@ -119,17 +110,5 @@ internal class GroupieProcessCurrentClass(
         }.flatten().filter {
             it.text.startsWith("GroupieViewHolder")
         }
-    }
-
-    private fun layoutNameAsBinding(layoutName: String): String =
-        layoutName.split("_").joinToString(
-            separator = "",
-            postfix = "Binding"
-        ) { name ->
-            name.replaceFirstChar { it.uppercase() }
-        }
-
-    companion object {
-        private const val VIEW_BINDING_IMPORT_TEMPLATE = "%s.databinding.%s"
     }
 }

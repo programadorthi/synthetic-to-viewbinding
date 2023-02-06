@@ -1,4 +1,4 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.model
 
 enum class BindingType(val value: String) {
     BIND("bind"),

@@ -1,12 +1,14 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.migration
 
+import dev.programadorthi.migration.model.BindingFunction
+import dev.programadorthi.migration.model.BindingType
 import org.jetbrains.kotlin.psi.KtClass
 
-internal class ViewProcessCurrentClass(
+internal class ViewMigration(
     packageName: String,
     private val ktClass: KtClass,
-) : ProcessCurrentClass(packageName, ktClass) {
-    override fun process(
+) : CommonAndroidClassMigration(packageName, ktClass) {
+    override fun mapToFunctionAndType(
         bindingName: String,
         propertyName: String,
         rootTag: String,

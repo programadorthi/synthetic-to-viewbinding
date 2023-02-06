@@ -1,36 +1,30 @@
-package dev.programadorthi.migration.helper
+package dev.programadorthi.migration.migration
 
-import dev.programadorthi.migration.visitor.SyntheticReferenceRecursiveVisitor
+import com.intellij.psi.PsiReference
+import dev.programadorthi.migration.model.AndroidView
+import dev.programadorthi.migration.model.BindingFunction
+import dev.programadorthi.migration.model.BindingType
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassBody
 import org.jetbrains.kotlin.psi.KtClassInitializer
-import org.jetbrains.kotlin.psi.KtPsiFactory
 
-abstract class ProcessCurrentClass(
-    private val packageName: String,
+abstract class CommonAndroidClassMigration(
+    packageName: String,
     private val ktClass: KtClass,
-) {
+) : CommonMigration(packageName, ktClass) {
     private val bindingPropertyToCreate = mutableSetOf<String>()
-    private val mutableBindingsToImport = mutableSetOf<String>()
     private val syntheticBindingPropertyToCreate = mutableSetOf<String>()
 
-    val bindingToImport: Set<String>
-        get() = mutableBindingsToImport
-
-    fun collectAndMigrate() {
-        val visitor = SyntheticReferenceRecursiveVisitor()
-        ktClass.accept(visitor)
-        if (visitor.androidViews.isEmpty()) return
-
+    override fun process(androidViews: List<AndroidView>, viewHolderItemViews: List<PsiReference>) {
         // key: my_view_layout
         // value: layout root tag
-        val filesReferencedByCurrentClass = visitor.androidViews.associate { androidView ->
+        val filesReferencedByCurrentClass = androidViews.associate { androidView ->
             androidView.layoutNameWithoutExtension to androidView.rootTagName
         }
 
         // key: my_view_layout
         // value: [androidView1, androidView2, androidView3, ...]
-        val syntheticsByLayout = visitor.androidViews.groupBy { androidView ->
+        val syntheticsByLayout = androidViews.groupBy { androidView ->
             androidView.layoutNameWithoutExtension
         }
 
@@ -61,20 +55,20 @@ abstract class ProcessCurrentClass(
         androidViewInLayout: List<AndroidView>,
     ) {
         val bindingName = layoutNameAsBinding(layoutName)
-        mutableBindingsToImport += VIEW_BINDING_IMPORT_TEMPLATE.format(packageName, bindingName)
+        addBindingToImport(layoutNameAsBinding = bindingName)
         val propertyName = when {
             isThereMultibindingInClass -> bindingName.replaceFirstChar { it.lowercase() }
             else -> DEFAULT_PROPERTY_NAME
         }
         for (view in androidViewInLayout) {
-            val propertySuffix = if (view.isIncludeTag) ".root" else ""
             // binding.viewId or binding.viewId.root
+            val propertySuffix = provideBindingExpression(view)
             syntheticBindingPropertyToCreate += SYNTHETIC_BINDING_AS_LAZY_TEMPLATE.format(
                 view.viewId,
-                "$propertyName.${view.viewId}$propertySuffix",
+                "$propertyName.$propertySuffix",
             )
         }
-        val (bindingFunction, bindingType) = process(
+        val (bindingFunction, bindingType) = mapToFunctionAndType(
             bindingName = bindingName,
             propertyName = propertyName,
             rootTag = rootTag,
@@ -85,7 +79,7 @@ abstract class ProcessCurrentClass(
             bindingFunction = bindingFunction,
             bindingType = bindingType,
         )
-        mutableBindingsToImport += BINDING_FUNCTION_IMPORT_TEMPLATE.format(bindingFunction.value)
+        addGenericImport(BINDING_FUNCTION_IMPORT_TEMPLATE.format(bindingFunction.value))
     }
 
     private fun removeExistingViewInflate(body: KtClassBody?, layoutName: String) {
@@ -105,7 +99,6 @@ abstract class ProcessCurrentClass(
     }
 
     private fun addProperty(ktClass: KtClass, content: String) {
-        val psiFactory = KtPsiFactory(ktClass.project)
         val property = psiFactory.createProperty(content)
         val body = ktClass.body ?: return
         body.addAfter(property, body.lBrace)
@@ -120,15 +113,7 @@ abstract class ProcessCurrentClass(
         propertyName, bindingFunction.value, viewBindingName, bindingType.value,
     )
 
-    protected fun layoutNameAsBinding(layoutName: String): String =
-        layoutName.split("_").joinToString(
-            separator = "",
-            postfix = "Binding"
-        ) { name ->
-            name.replaceFirstChar { it.uppercase() }
-        }
-
-    abstract fun process(
+    abstract fun mapToFunctionAndType(
         bindingName: String,
         propertyName: String,
         rootTag: String,
@@ -139,6 +124,5 @@ abstract class ProcessCurrentClass(
         private const val BINDING_FUNCTION_IMPORT_TEMPLATE = "co.stone.cactus.utils.ktx.%s"
         private const val BINDING_PROPERTY_TEMPLATE = "private val %s by %s(%s::%s)"
         private const val SYNTHETIC_BINDING_AS_LAZY_TEMPLATE = "private val %s by lazy { %s }"
-        private const val VIEW_BINDING_IMPORT_TEMPLATE = "%s.databinding.%s"
     }
 }
