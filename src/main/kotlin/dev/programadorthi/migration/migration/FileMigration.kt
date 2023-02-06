@@ -3,6 +3,7 @@ package dev.programadorthi.migration.migration
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiParserFacade
 import com.intellij.psi.util.InheritanceUtil
+import dev.programadorthi.migration.notification.MigrationNotification
 import org.jetbrains.kotlin.android.synthetic.AndroidConst
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.psi.KtClass
@@ -24,6 +25,7 @@ object FileMigration {
         val syntheticImports = file.importDirectives.filter(::shouldIMigrate)
         if (syntheticImports.isEmpty()) return
         lookupForReferences(ktFile, syntheticImports, packageName)
+        MigrationNotification.showInfo("${ktFile.name} migration successfully!")
     }
 
     private fun lookupForReferences(ktFile: KtFile, syntheticImports: List<KtImportDirective>, packageName: String) {

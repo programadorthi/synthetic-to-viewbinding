@@ -1,39 +1,32 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
-    <id>dev.programadorthi.android-extension-migration</id>
-
-    <!-- Public plugin name should be written in Title Case.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
-    <name>Android-extension-migration</name>
-
-    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor email="support@yourcompany.com" url="https://www.yourcompany.com">YourCompany</vendor>
-
-    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
+    <id>dev.programadorthi.synthetictoviewbinding</id>
+    <name>Kotlin Synthetic to ViewBinding</name>
+    <vendor url="https://github.com/programadorthi">programadorthi</vendor>
     <description><![CDATA[
-    Enter short description for your plugin here.<br>
-    <em>most HTML tags may be used</em>
+<p>Support for <a href="https://developer.android.com/topic/libraries/view-binding/migration">Migrate from Kotlin synthetics to Jetpack view binding</a></p>
+<p>Features</p>
+<ul>
+<li>Activity, Dialog, ViewGroup or View migration</li>
+<li>Groupie Item migration with support to add initializeViewBinding(view) function</li>
+<li>Replace setContentView(R.layout.name) to setContentView(binding.root)</li>
+<li>Remove View.inflate() or LayoutInflate.inflate from init {} blocks</li>
+<li>Support for multiple synthetics in the same class</li>
+<li>Support to add .root in <include/> view binding</li>
+<li>Organize imports, Reformat code, Code cleanup based on your IDE code style settings</li>
+</ul>
+<p>Find more information on my <a href="https://github.com/programadorthi/synthetic-migration-plugin">repository</a></p>
   ]]></description>
-
-    <!-- Product and plugin compatibility requirements.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.lang</depends>
     <depends>org.jetbrains.kotlin</depends>
     <depends>org.jetbrains.android</depends>
-
-    <!-- Extension points defined by the plugin.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <notificationGroup id="migration-notification-group" displayType="BALLOON" key="notification.group.name"/>
+        <notificationGroup id="Synthetic Migration" displayType="BALLOON" key="dev.programadorthi.notification"/>
     </extensions>
     <actions>
         <action id="dev.programadorthi.migration.MigrationAction"
                 class="dev.programadorthi.migration.MigrationAction" text="Migrate Synthetic to ViewBinding"
-                description="Convert synthetic resources to ViewBinding">
+                description="Convert synthetic to ViewBinding">
             <add-to-group group-id="RefactoringMenu" anchor="last"/>
             <add-to-group group-id="UsageView.Popup" anchor="first"/>
         </action>

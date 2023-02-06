@@ -6,7 +6,7 @@ import com.intellij.openapi.project.Project
 
 object MigrationNotification {
     private val manager = NotificationGroupManager.getInstance()
-        .getNotificationGroup("migration-notification-group")
+        .getNotificationGroup("Synthetic Migration")
     private var current: Project? = null
 
     fun setProject(project: Project) {
