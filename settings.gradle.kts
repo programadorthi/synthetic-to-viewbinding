@@ -1,1 +1,1 @@
-rootProject.name = "android-extension-migration"
+rootProject.name = "synthetic-to-viewbinding"
