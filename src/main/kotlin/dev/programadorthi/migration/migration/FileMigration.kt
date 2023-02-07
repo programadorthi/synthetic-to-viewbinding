@@ -21,9 +21,9 @@ internal object FileMigration {
     private const val GROUPIE_VIEW_HOLDER_CLASS = "com.xwray.groupie.kotlinandroidextensions.GroupieViewHolder"
 
     fun migrate(file: PsiFile, packageName: String, buildGradleProvider: BuildGradleProvider) {
-        val ktFile = file as? KtFile ?: return
-        KotlinBuildGradleMigration.migrateScript(ktFile, buildGradleProvider)
+        BuildGradleMigration.migrateScript(file, buildGradleProvider)
 
+        val ktFile = file as? KtFile ?: return
         val syntheticImports = file.importDirectives.filter(::shouldIMigrate)
         if (syntheticImports.isEmpty()) return
 
