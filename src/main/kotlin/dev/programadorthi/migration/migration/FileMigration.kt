@@ -1,7 +1,6 @@
 package dev.programadorthi.migration.migration
 
 import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiParserFacade
 import com.intellij.psi.util.InheritanceUtil
 import dev.programadorthi.migration.notification.MigrationNotification
 import org.jetbrains.kotlin.android.synthetic.AndroidConst
@@ -13,25 +12,39 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.resolve.ImportPath
 
 internal object FileMigration {
-    private const val ANDROID_ACTIVITY_CLASS = "android.app.Activity"
-    private const val ANDROID_DIALOG_CLASS = "android.app.Dialog"
-    private const val ANDROID_VIEW_CLASS = "android.view.View"
-    private const val ANDROID_VIEW_GROUP_CLASS = "android.view.ViewGroup"
-    private const val GROUPIE_ITEM_CLASS = "com.xwray.groupie.kotlinandroidextensions.Item"
-    private const val GROUPIE_VIEW_HOLDER_CLASS = "com.xwray.groupie.kotlinandroidextensions.GroupieViewHolder"
+    private const val GROUPIE_PACKAGE_PREFIX = "com.xwray.groupie.kotlinandroidextensions"
+    private const val GROUPIE_ITEM_CLASS = "$GROUPIE_PACKAGE_PREFIX.Item"
+    private const val GROUPIE_VIEW_HOLDER_CLASS = "$GROUPIE_PACKAGE_PREFIX.GroupieViewHolder"
+    private const val PARCELIZE_PACKAGE_PREFIX = "kotlinx.android.parcel"
 
-    fun migrate(file: PsiFile, packageName: String, buildGradleProvider: BuildGradleProvider) {
-        BuildGradleMigration.migrateScript(file, buildGradleProvider)
+    private val parcelizeImports = setOf("kotlinx.parcelize.Parcelize")
+
+    fun migrate(
+        file: PsiFile,
+        packageName: String,
+        buildGradleStatusProvider: BuildGradleStatusProvider,
+        parcelizeStatusProvider: ParcelizeStatusProvider,
+    ) {
+        BuildGradleMigration.migrateScript(file, buildGradleStatusProvider)
 
         val ktFile = file as? KtFile ?: return
         val syntheticImports = file.importDirectives.filter(::shouldIMigrate)
-        if (syntheticImports.isEmpty()) return
-
-        lookupForReferences(ktFile, syntheticImports, packageName)
-        MigrationNotification.showInfo("${ktFile.name} migration successfully!")
+        if (syntheticImports.isNotEmpty()) {
+            if (syntheticImports.all(::isParcelize)) {
+                ParcelizeMigration.migrate(ktFile, parcelizeStatusProvider)
+                updateImports(ktFile, syntheticImports, parcelizeImports)
+            } else {
+                lookupForReferences(ktFile, syntheticImports, packageName)
+            }
+            MigrationNotification.showInfo("${ktFile.name} migration successfully!")
+        }
     }
 
-    private fun lookupForReferences(ktFile: KtFile, syntheticImports: List<KtImportDirective>, packageName: String) {
+    private fun lookupForReferences(
+        ktFile: KtFile,
+        syntheticImports: List<KtImportDirective>,
+        packageName: String,
+    ) {
         val bindingsToImport = mutableSetOf<String>()
         for (psiClass in ktFile.classes) {
             val currentClass = when (psiClass) {
@@ -42,17 +55,19 @@ internal object FileMigration {
             val parents = InheritanceUtil.getSuperClasses(psiClass)
             for (parent in parents) {
                 val process: CommonMigration = when (parent.qualifiedName) {
-                    ANDROID_ACTIVITY_CLASS, ANDROID_DIALOG_CLASS -> ClassWithSetContentViewMigration(
+                    AndroidConst.ACTIVITY_FQNAME,
+                    AndroidConst.DIALOG_FQNAME -> ClassWithSetContentViewMigration(
                         packageName = packageName,
                         ktClass = currentClass,
                     )
 
-                    ANDROID_VIEW_GROUP_CLASS, ANDROID_VIEW_CLASS -> ViewMigration(
+                    AndroidConst.VIEW_FQNAME -> ViewMigration(
                         packageName = packageName,
                         ktClass = currentClass,
                     )
 
-                    GROUPIE_ITEM_CLASS, GROUPIE_VIEW_HOLDER_CLASS -> GroupieMigration(
+                    GROUPIE_ITEM_CLASS,
+                    GROUPIE_VIEW_HOLDER_CLASS -> GroupieMigration(
                         packageName = packageName,
                         ktClass = currentClass,
                     )
@@ -62,6 +77,10 @@ internal object FileMigration {
                 process.doMigration()
                 bindingsToImport.addAll(process.bindingToImport)
             }
+        }
+
+        if (syntheticImports.any(::isParcelize)) {
+            bindingsToImport.addAll(parcelizeImports)
         }
 
         // Avoiding remove imports from class not supported yet
@@ -76,8 +95,7 @@ internal object FileMigration {
         for (imp in bindingToImport) {
             val importPath = ImportPath.fromString(imp)
             val importDirective = psiFactory.createImportDirective(importPath)
-            val parserFacade = PsiParserFacade.SERVICE.getInstance(ktFile.project)
-            val newLine = parserFacade.createWhiteSpaceFromText("\n")
+            val newLine = psiFactory.createWhiteSpace("\n")
             importList.add(newLine)
             importList.add(importDirective)
         }
@@ -86,9 +104,15 @@ internal object FileMigration {
         }
     }
 
+    private fun isParcelize(importDirective: KtImportDirective): Boolean {
+        val pathStr = importDirective.importPath?.pathStr ?: return false
+        return pathStr.startsWith(PARCELIZE_PACKAGE_PREFIX)
+    }
+
     private fun shouldIMigrate(importDirective: KtImportDirective): Boolean {
         val pathStr = importDirective.importPath?.pathStr ?: return false
         return pathStr.startsWith(AndroidConst.SYNTHETIC_PACKAGE) ||
-                pathStr.startsWith("com.xwray.groupie.kotlinandroidextensions")
+                pathStr.startsWith(GROUPIE_PACKAGE_PREFIX) ||
+                isParcelize(importDirective)
     }
 }

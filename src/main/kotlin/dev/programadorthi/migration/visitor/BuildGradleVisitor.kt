@@ -156,11 +156,11 @@ class BuildGradleVisitor : PsiElementVisitor() {
         }
     }
 
-    private companion object {
+    companion object {
         private const val ANDROID_SECTION = "android"
         private const val ANDROID_EXTENSIONS_SECTION = "androidExtensions"
         private const val CONFIGURE_SECTION = "configure"
-        private const val PLUGINS_SECTION = "plugins"
+        const val PLUGINS_SECTION = "plugins"
 
         private val androidExtensionsRegex = """android[.-]extensions""".toRegex()
     }

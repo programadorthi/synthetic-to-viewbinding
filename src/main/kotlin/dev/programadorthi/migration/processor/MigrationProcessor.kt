@@ -12,14 +12,18 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.SlowOperations
-import dev.programadorthi.migration.migration.BuildGradleProvider
+import dev.programadorthi.migration.migration.BuildGradleStatusProvider
 import dev.programadorthi.migration.migration.FileMigration
+import dev.programadorthi.migration.migration.ParcelizeStatusProvider
+import dev.programadorthi.migration.model.MigrationStatus
 import dev.programadorthi.migration.notification.MigrationNotification
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.FutureTask
 
-class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleProvider {
+internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStatusProvider, ParcelizeStatusProvider {
     private val log = Logger.getInstance(MigrationProcessor::class.java)
-    private val migratedModules = mutableSetOf<String>()
+    private val buildGradleStatus = ConcurrentHashMap<String, MigrationStatus>()
+    private val parcelizeStatus = ConcurrentHashMap<String, MigrationStatus>()
     private val packageName: String
 
     constructor(
@@ -73,11 +77,20 @@ class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleProvider {
         }
     }
 
-    override fun hasMigratedAlready(path: String): Boolean =
-        migratedModules.contains(path)
+    override fun currentBuildGradleStatus(path: String): MigrationStatus {
+        return buildGradleStatus[path] ?: MigrationStatus.NOT_STARTED
+    }
 
-    override fun registerModuleMigration(path: String) {
-        migratedModules += path
+    override fun currentParcelizeStatus(path: String): MigrationStatus {
+        return parcelizeStatus[path] ?: MigrationStatus.NOT_STARTED
+    }
+
+    override fun updateBuildGradleStatus(path: String, status: MigrationStatus) {
+        buildGradleStatus[path] = status
+    }
+
+    override fun updateParcelizeStatus(path: String, status: MigrationStatus) {
+        parcelizeStatus[path] = status
     }
 
     private fun doMigration(file: PsiFile): Boolean {
@@ -97,7 +110,8 @@ class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleProvider {
                         FileMigration.migrate(
                             file = file,
                             packageName = packageName,
-                            buildGradleProvider = this@MigrationProcessor,
+                            buildGradleStatusProvider = this@MigrationProcessor,
+                            parcelizeStatusProvider = this@MigrationProcessor,
                         )
                     }
                 }

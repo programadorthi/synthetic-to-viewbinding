@@ -13,6 +13,7 @@
 <li>Support for multiple synthetics in the same class</li>
 <li>Support to add .root in <include/> view binding</li>
 <li>Remove plugin and android extensions configurations from build(.gradle|.kts)</li>
+<li>Update @Parcelize imports and add plugin to build(.gradle|.kts)</li>
 <li>Organize imports, Reformat code, Code cleanup based on your IDE code style settings</li>
 </ul>
 <p>Find more information on my <a href="https://github.com/programadorthi/synthetic-migration-plugin">repository</a></p>

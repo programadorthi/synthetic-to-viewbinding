@@ -1,10 +1,12 @@
 package dev.programadorthi.migration.migration
 
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import dev.programadorthi.migration.model.BuildGradleItem
+import dev.programadorthi.migration.model.MigrationStatus
 import dev.programadorthi.migration.notification.MigrationNotification
 import dev.programadorthi.migration.visitor.BuildGradleVisitor
 import org.jetbrains.kotlin.idea.configuration.externalProjectPath
@@ -16,29 +18,38 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory
 import java.nio.file.Paths
 
 internal object BuildGradleMigration {
-    private const val BUILD_GRADLE_FILE_NAME = "build.gradle"
-    private const val BUILD_GRADLE_KTS_FILE_NAME = "build.gradle.kts"
+    const val BUILD_GRADLE_FILE_NAME = "build.gradle"
+    const val BUILD_GRADLE_KTS_FILE_NAME = "build.gradle.kts"
 
-    fun migrateScript(psiFile: PsiFile, buildGradleProvider: BuildGradleProvider) {
+    private val log = Logger.getInstance(BuildGradleMigration::class.java)
+
+    fun migrateScript(psiFile: PsiFile, buildGradleStatusProvider: BuildGradleStatusProvider) {
         val modulePath = psiFile.module?.externalProjectPath ?: return
-        if (buildGradleProvider.hasMigratedAlready(modulePath)) return
+        if (buildGradleStatusProvider.currentBuildGradleStatus(modulePath) != MigrationStatus.NOT_STARTED) return
 
-        if ((psiFile is KtFile && psiFile.isScript() && psiFile.name == BUILD_GRADLE_KTS_FILE_NAME) ||
-            (psiFile is GroovyFile && psiFile.name == BUILD_GRADLE_FILE_NAME)
-        ) {
-            migrateScript(psiFile)
-            buildGradleProvider.registerModuleMigration(modulePath)
-            return
-        }
+        runCatching {
+            buildGradleStatusProvider.updateBuildGradleStatus(modulePath, MigrationStatus.IN_PROGRESS)
 
-        var virtualFile = VfsUtil.findFile(Paths.get(modulePath, BUILD_GRADLE_KTS_FILE_NAME), false)
-        if (virtualFile?.exists() != true) {
-            virtualFile = VfsUtil.findFile(Paths.get(modulePath, BUILD_GRADLE_FILE_NAME), false)
-        }
+            if ((psiFile is KtFile && psiFile.isScript() && psiFile.name == BUILD_GRADLE_KTS_FILE_NAME) ||
+                (psiFile is GroovyFile && psiFile.name == BUILD_GRADLE_FILE_NAME)
+            ) {
+                migrateScript(psiFile)
+            } else {
+                var virtualFile = VfsUtil.findFile(Paths.get(modulePath, BUILD_GRADLE_KTS_FILE_NAME), false)
+                if (virtualFile?.exists() != true) {
+                    virtualFile = VfsUtil.findFile(Paths.get(modulePath, BUILD_GRADLE_FILE_NAME), false)
+                }
 
-        if (virtualFile?.exists() == true) {
-            migrateScript(PsiManager.getInstance(psiFile.project).findFile(virtualFile))
-            buildGradleProvider.registerModuleMigration(modulePath)
+                if (virtualFile?.exists() == true) {
+                    migrateScript(PsiManager.getInstance(psiFile.project).findFile(virtualFile))
+                }
+            }
+        }.onFailure {
+            log.error("Failed migrate gradle file android extensions setups", it)
+            buildGradleStatusProvider.updateBuildGradleStatus(modulePath, MigrationStatus.NOT_STARTED)
+        }.onSuccess {
+            buildGradleStatusProvider.updateBuildGradleStatus(modulePath, MigrationStatus.DONE)
+            MigrationNotification.showInfo("${psiFile.name} migration successfully!")
         }
     }
 
@@ -56,7 +67,6 @@ internal object BuildGradleMigration {
                 }
             }
         }
-        MigrationNotification.showInfo("${psiFile.name} migration successfully!")
     }
 
     private fun createWhiteSpace(psiFile: PsiFile): PsiElement {
