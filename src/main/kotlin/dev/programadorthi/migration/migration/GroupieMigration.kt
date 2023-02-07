@@ -6,7 +6,6 @@ import com.intellij.psi.util.parents
 import dev.programadorthi.migration.model.AndroidView
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
-import org.jetbrains.kotlin.psi.psiUtil.blockExpressionsOrSingle
 import org.jetbrains.kotlin.psi.psiUtil.findFunctionByName
 import org.jetbrains.kotlin.psi.psiUtil.getValueParameterList
 
@@ -91,10 +90,14 @@ internal class GroupieMigration(
     private fun tryAddInitializeBindingFunction(bindingName: String) {
         val bindFunction = ktClass.findFunctionByName("bind") ?: return
         val whitespace = psiFactory.createWhiteSpace("\n")
-        val function = psiFactory.createFunction("override fun initializeViewBinding(view: View): $bindingName =\n" +
-                "        $bindingName.bind(view)")
-        bindFunction.addBefore(whitespace, bindFunction)
-        bindFunction.addBefore(function, bindFunction)
+        val function = psiFactory.createFunction(
+            "override fun initializeViewBinding(view: View): $bindingName =\n" +
+                    "        $bindingName.bind(view)"
+        )
+        bindFunction.parent.run {
+            addBefore(function, bindFunction)
+            addBefore(whitespace, bindFunction)
+        }
     }
 
     private fun replaceFunctionParameterType(

@@ -12,7 +12,7 @@ import org.jetbrains.kotlin.psi.KtImportDirective
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.resolve.ImportPath
 
-object FileMigration {
+internal object FileMigration {
     private const val ANDROID_ACTIVITY_CLASS = "android.app.Activity"
     private const val ANDROID_DIALOG_CLASS = "android.app.Dialog"
     private const val ANDROID_VIEW_CLASS = "android.view.View"
@@ -20,10 +20,13 @@ object FileMigration {
     private const val GROUPIE_ITEM_CLASS = "com.xwray.groupie.kotlinandroidextensions.Item"
     private const val GROUPIE_VIEW_HOLDER_CLASS = "com.xwray.groupie.kotlinandroidextensions.GroupieViewHolder"
 
-    fun migrate(file: PsiFile, packageName: String) {
+    fun migrate(file: PsiFile, packageName: String, buildGradleProvider: BuildGradleProvider) {
         val ktFile = file as? KtFile ?: return
+        KotlinBuildGradleMigration.migrateScript(ktFile, buildGradleProvider)
+
         val syntheticImports = file.importDirectives.filter(::shouldIMigrate)
         if (syntheticImports.isEmpty()) return
+
         lookupForReferences(ktFile, syntheticImports, packageName)
         MigrationNotification.showInfo("${ktFile.name} migration successfully!")
     }

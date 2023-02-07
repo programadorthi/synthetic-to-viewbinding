@@ -12,12 +12,14 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.SlowOperations
+import dev.programadorthi.migration.migration.BuildGradleProvider
 import dev.programadorthi.migration.migration.FileMigration
 import dev.programadorthi.migration.notification.MigrationNotification
 import java.util.concurrent.FutureTask
 
-class MigrationProcessor : AbstractLayoutCodeProcessor {
+class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleProvider {
     private val log = Logger.getInstance(MigrationProcessor::class.java)
+    private val migratedModules = mutableSetOf<String>()
     private val packageName: String
 
     constructor(
@@ -71,6 +73,13 @@ class MigrationProcessor : AbstractLayoutCodeProcessor {
         }
     }
 
+    override fun hasMigratedAlready(path: String): Boolean =
+        migratedModules.contains(path)
+
+    override fun registerModuleMigration(path: String) {
+        migratedModules += path
+    }
+
     private fun doMigration(file: PsiFile): Boolean {
         try {
             val document = PsiDocumentManager.getInstance(myProject).getDocument(file)
@@ -85,7 +94,11 @@ class MigrationProcessor : AbstractLayoutCodeProcessor {
                             // this may be the cause of formatting artifacts
                             PsiDocumentManager.getInstance(myProject).commitDocument(document)
                         }
-                        FileMigration.migrate(file, packageName)
+                        FileMigration.migrate(
+                            file = file,
+                            packageName = packageName,
+                            buildGradleProvider = this@MigrationProcessor,
+                        )
                     }
                 }
             } catch (pce: ProcessCanceledException) {
