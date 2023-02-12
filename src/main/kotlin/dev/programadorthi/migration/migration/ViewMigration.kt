@@ -1,23 +1,30 @@
 package dev.programadorthi.migration.migration
 
+import android.databinding.tool.writer.ViewBinder
+import com.android.tools.idea.kotlin.getQualifiedName
+import dev.programadorthi.migration.model.BindingData
 import dev.programadorthi.migration.model.BindingFunction
 import dev.programadorthi.migration.model.BindingType
 import org.jetbrains.kotlin.psi.KtClass
 
 internal class ViewMigration(
-    packageName: String,
     private val ktClass: KtClass,
-) : CommonAndroidClassMigration(packageName, ktClass) {
+    bindingData: List<BindingData>,
+) : CommonAndroidClassMigration(ktClass, bindingData) {
     override fun mapToFunctionAndType(
-        bindingName: String,
+        bindingClassName: String,
         propertyName: String,
-        rootTag: String,
-    ): Pair<BindingFunction, BindingType> = when {
-        // private val propertyName by viewBinding(viewBindingName::bind)
-        rootTag.endsWith("${ktClass.name}") -> BindingFunction.DEFAULT to BindingType.BIND
-        // private val propertyName by viewBindingMergeTag(viewBindingName::inflate)
-        rootTag == "merge" -> BindingFunction.AS_MERGE to BindingType.INFLATE
+        rootNode: ViewBinder.RootNode,
+    ): Pair<BindingFunction, BindingType> {
+        if (rootNode is ViewBinder.RootNode.Merge) {
+            // private val propertyName by viewBindingMergeTag(viewBindingName::inflate)
+            return BindingFunction.AS_MERGE to BindingType.INFLATE
+        }
+        if (rootNode is ViewBinder.RootNode.View && rootNode.type.toString() == ktClass.getQualifiedName()) {
+            // private val propertyName by viewBinding(viewBindingName::bind)
+            return BindingFunction.DEFAULT to BindingType.BIND
+        }
         // private val propertyName by viewBindingAsChild(viewBindingName::inflate)
-        else -> BindingFunction.AS_CHILD to BindingType.INFLATE
+        return BindingFunction.AS_CHILD to BindingType.INFLATE
     }
 }

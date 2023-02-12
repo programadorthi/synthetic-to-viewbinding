@@ -1,26 +1,29 @@
 package dev.programadorthi.migration.migration
 
+import android.databinding.tool.writer.ViewBinder
 import com.intellij.psi.PsiElement
+import dev.programadorthi.migration.model.BindingData
 import dev.programadorthi.migration.model.BindingFunction
 import dev.programadorthi.migration.model.BindingType
 import org.jetbrains.kotlin.psi.KtClass
-import org.jetbrains.kotlin.psi.KtClassBody
+import org.jetbrains.kotlin.psi.KtNamedFunction
 
 internal class ClassWithSetContentViewMigration(
-    packageName: String,
     private val ktClass: KtClass,
-) : CommonAndroidClassMigration(packageName, ktClass) {
+    bindingData: List<BindingData>,
+) : CommonAndroidClassMigration(ktClass, bindingData) {
 
     override fun mapToFunctionAndType(
-        bindingName: String,
+        bindingClassName: String,
         propertyName: String,
-        rootTag: String,
+        rootNode: ViewBinder.RootNode,
     ): Pair<BindingFunction, BindingType> {
-        val body = ktClass.body ?: error("${ktClass.name} has null body")
-        val setContentView = tryFindSetContentViewInsideOnCreate(body)
-        val layoutName = setContentView.text.substringAfterLast('.').removeSuffix(")")
-        val layoutNameAsBinding = layoutNameAsBinding(layoutName)
-        if (layoutNameAsBinding == bindingName) {
+        val setContentView = findSetContentView(ktClass) ?: return BindingFunction.DEFAULT to BindingType.INFLATE
+        val layoutNameAsBinding = setContentView.text
+            .substringAfterLast('.')
+            .removeSuffix(")")
+            .layoutToBindingName()
+        if (layoutNameAsBinding == bindingClassName) {
             val setContentViewWithBinding = SET_CONTENT_VIEW_TEMPLATE.format(propertyName)
             val expression = psiFactory.createExpression(setContentViewWithBinding)
             setContentView.replace(expression)
@@ -28,13 +31,13 @@ internal class ClassWithSetContentViewMigration(
         return BindingFunction.DEFAULT to BindingType.INFLATE
     }
 
-    private fun tryFindSetContentViewInsideOnCreate(body: KtClassBody): PsiElement {
-        for (func in body.functions) {
-            if (func.name != "onCreate") continue
-            val children = func.bodyBlockExpression?.children ?: continue
-            return children.firstOrNull { element -> element.text.contains("setContentView") } ?: continue
-        }
-        error("Invalid class ${ktClass.name} because it body has no onCreate and setContentView")
+    private fun findSetContentView(ktClass: KtClass): PsiElement? {
+        val allBodyFunctions = ktClass.body?.children?.filterIsInstance<KtNamedFunction>() ?: return null
+        return allBodyFunctions
+            .filter { it.name == "onCreate" }
+            .mapNotNull { it.bodyBlockExpression?.children?.toList() }
+            .flatten()
+            .firstOrNull { element -> element.text.contains("setContentView(R.layout.") }
     }
 
     private companion object {

@@ -12,61 +12,47 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.SlowOperations
+import dev.programadorthi.migration.migration.BuildGradleMigration
 import dev.programadorthi.migration.migration.BuildGradleStatusProvider
 import dev.programadorthi.migration.migration.FileMigration
 import dev.programadorthi.migration.migration.ParcelizeStatusProvider
 import dev.programadorthi.migration.model.MigrationStatus
 import dev.programadorthi.migration.notification.MigrationNotification
+import org.jetbrains.kotlin.android.model.AndroidModuleInfoProvider
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.FutureTask
 
 internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStatusProvider, ParcelizeStatusProvider {
     private val log = Logger.getInstance(MigrationProcessor::class.java)
+
     private val buildGradleStatus = ConcurrentHashMap<String, MigrationStatus>()
     private val parcelizeStatus = ConcurrentHashMap<String, MigrationStatus>()
-    private val packageName: String
 
-    constructor(
-        project: Project,
-        packageName: String,
-    ) : super(
+    constructor(project: Project) : super(
         project,
         getCommandName(),
         getProgressText(),
         false,
-    ) {
-        this.packageName = packageName
-    }
+    )
 
-    constructor(
-        project: Project,
-        module: Module,
-        packageName: String,
-    ) : super(
+    constructor(project: Project, module: Module) : super(
         project,
         module,
         getCommandName(),
         getProgressText(),
         false,
-    ) {
-        this.packageName = packageName
-    }
+    )
 
-    constructor(
-        project: Project,
-        directory: PsiDirectory,
-        includeSubdirs: Boolean,
-        packageName: String,
-    ) : super(
+    constructor(project: Project, directory: PsiDirectory, includeSubdirs: Boolean) : super(
         project,
         directory,
         includeSubdirs,
         getProgressText(),
         getCommandName(),
         false,
-    ) {
-        this.packageName = packageName
-    }
+    )
 
     override fun prepareTask(file: PsiFile, processChangedTextOnly: Boolean): FutureTask<Boolean> {
         val fileToProcess = ReadAction.compute<PsiFile?, IncorrectOperationException> {
@@ -107,12 +93,22 @@ internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStat
                             // this may be the cause of formatting artifacts
                             PsiDocumentManager.getInstance(myProject).commitDocument(document)
                         }
-                        FileMigration.migrate(
-                            file = file,
-                            packageName = packageName,
-                            buildGradleStatusProvider = this@MigrationProcessor,
-                            parcelizeStatusProvider = this@MigrationProcessor,
-                        )
+                        if (isGroovyBuildGradle(file) || isKtsBuildGradle(file)) {
+                            BuildGradleMigration.migrateScript(file, this@MigrationProcessor)
+                        } else if (file is KtFile && !file.isScript()) {
+                            val provider = AndroidModuleInfoProvider.getInstance(file)
+                            val applicationPackage = provider?.getApplicationPackage()
+                            if (provider?.isAndroidModule() != true || applicationPackage == null) {
+                                log.warn("${file.name} is in a module not supported. Migration supports android modules only")
+                            } else {
+                                FileMigration.migrate(
+                                    ktFile = file,
+                                    applicationPackage = applicationPackage,
+                                    moduleInfoProvider = provider,
+                                    parcelizeStatusProvider = this@MigrationProcessor,
+                                )
+                            }
+                        }
                     }
                 }
             } catch (pce: ProcessCanceledException) {
@@ -130,6 +126,12 @@ internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStat
         }
         return false
     }
+
+    private fun isGroovyBuildGradle(psiFile: PsiFile): Boolean =
+        psiFile is GroovyFile && psiFile.name == BuildGradleMigration.BUILD_GRADLE_FILE_NAME
+
+    private fun isKtsBuildGradle(psiFile: PsiFile): Boolean =
+        psiFile is KtFile && psiFile.isScript() && psiFile.name == BuildGradleMigration.BUILD_GRADLE_KTS_FILE_NAME
 
     private fun ensureValid(file: PsiFile): PsiFile? {
         if (file.isValid) {

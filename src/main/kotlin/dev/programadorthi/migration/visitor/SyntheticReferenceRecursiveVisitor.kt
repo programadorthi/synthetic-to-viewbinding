@@ -4,9 +4,8 @@ import android.databinding.tool.ext.parseXmlResourceReference
 import android.databinding.tool.ext.toCamelCaseAsVar
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
-import com.intellij.psi.util.elementType
+import com.intellij.psi.xml.XmlAttribute
 import com.intellij.psi.xml.XmlAttributeValue
-import com.intellij.psi.xml.XmlElementType
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import dev.programadorthi.migration.model.AndroidView
@@ -46,6 +45,7 @@ import org.jetbrains.kotlin.psi.KtWhenExpression
 class SyntheticReferenceRecursiveVisitor : KtVisitorVoid() {
     private val mutableAndroidViews = mutableListOf<AndroidView>()
     private val mutableViewHolderItemViews = mutableListOf<PsiReference>()
+
     val androidViews: List<AndroidView>
         get() = mutableAndroidViews
 
@@ -74,28 +74,30 @@ class SyntheticReferenceRecursiveVisitor : KtVisitorVoid() {
     }
 
     private fun tryMapXmlAttributeValue(psiElement: PsiElement?, psiReference: PsiReference?) {
-        if (psiElement == null || psiReference == null) return
-        if (checkAndMapGroupieValue(psiElement, psiReference)) return
-        if (psiElement.elementType != XmlElementType.XML_ATTRIBUTE_VALUE) return
+        if (psiElement == null || psiReference == null || checkAndMapViewHolderType(psiElement, psiReference)) return
+        if (psiElement is XmlAttributeValue) {
+            val xmlFile = psiElement.containingFile as? XmlFile ?: return
 
-        val xmlAttributeValue = psiElement as XmlAttributeValue
-        if (!xmlAttributeValue.value.startsWith(ANDROID_VIEW_ID_PREFIX)) return
+            // TODO: Are we still need lookup for include layouts?
+            val elementTag = getXmlAttributeValueTag(psiElement) ?: return
 
-        val file = xmlAttributeValue.containingFile as? XmlFile ?: return
-        mutableAndroidViews += AndroidView(
-            reference = psiReference,
-            isIncludeTag = checkForSyntheticIncludeTag(xmlAttributeValue),
-            layoutNameWithoutExtension = file.name.removeSuffix(".xml"),
-            rootTagName = file.rootTag?.name ?: "",
-            viewId = xmlAttributeValue.text
-                .removeSurrounding("\"")
-                .parseXmlResourceReference()
-                .name
-                .toCamelCaseAsVar()
-        )
+            val viewIdReference = runCatching {
+                psiElement.value.parseXmlResourceReference()
+            }.getOrNull()
+            if (viewIdReference == null || viewIdReference.type != "id") return
+
+            mutableAndroidViews += AndroidView(
+                reference = psiReference,
+                layoutNameWithoutExtension = xmlFile.name.removeSuffix(".xml"),
+                rootTagName = xmlFile.rootTag?.name ?: "",
+                includeLayoutName = if (elementTag != "include") null else getLayoutName(psiElement),
+                viewStubLayoutName = if (elementTag != "ViewStub") null else getLayoutName(psiElement),
+                viewId = viewIdReference.name.toCamelCaseAsVar()
+            )
+        }
     }
 
-    private fun checkAndMapGroupieValue(psiElement: PsiElement, psiReference: PsiReference): Boolean {
+    private fun checkAndMapViewHolderType(psiElement: PsiElement, psiReference: PsiReference): Boolean {
         val currentPsiElement = psiElement.namedUnwrappedElement ?: return false
         val parentName = currentPsiElement.parent?.namedUnwrappedElement?.name ?: ""
         if (("itemView" == currentPsiElement.name || "containerView" == currentPsiElement.name) &&
@@ -111,16 +113,36 @@ class SyntheticReferenceRecursiveVisitor : KtVisitorVoid() {
      * current ref is: "@+id/someIdentifier"
      * His parent is:   android:id="@+id/someIdentifier"
      * His parent from parent is always a tag: <Tag android:id="@+id/someIdentifier" />
-     *
-     * If parent tag is <include /> we need to add .root to binding name
      */
-    private fun checkForSyntheticIncludeTag(xmlAttributeValue: XmlAttributeValue): Boolean {
+    private fun getXmlAttributeValueTag(xmlAttributeValue: XmlAttributeValue): String? {
         var currentParent = xmlAttributeValue.parent
         while (true) {
-            if (currentParent == null || currentParent is XmlTag) break
-            currentParent = currentParent.parent
+            if (currentParent is XmlTag) {
+                return currentParent.name
+            }
+            currentParent = currentParent.parent ?: break
         }
-        return currentParent is XmlTag && currentParent.name == "include"
+        return null
+    }
+
+    // TODO: Are we still need lookup for include layouts?
+    private fun getLayoutName(xmlAttributeValue: XmlAttributeValue): String? {
+        var parent: PsiElement? = xmlAttributeValue.parent ?: return null
+        while (parent != null && parent !is XmlTag) {
+            parent = parent.parent
+        }
+        if (parent is XmlTag && (parent.name == "include" || parent.name == "ViewStub")) {
+            val layoutAttribute = parent.children
+                .filterIsInstance<XmlAttribute>()
+                .firstOrNull { it.text.contains(ANDROID_LAYOUT_PREFIX) }
+            if (layoutAttribute != null) {
+                val layout = layoutAttribute.text.split(ANDROID_LAYOUT_PREFIX)
+                if (layout.size > 1) {
+                    return layout[1].removeSuffix("\"")
+                }
+            }
+        }
+        return null
     }
 
     // ========================================================================
@@ -446,7 +468,7 @@ class SyntheticReferenceRecursiveVisitor : KtVisitorVoid() {
     // End recursive operations section
     // ========================================================================
 
-    private companion object {
-        private const val ANDROID_VIEW_ID_PREFIX = "@+id/"
+    companion object {
+        private const val ANDROID_LAYOUT_PREFIX = "@layout/"
     }
 }

@@ -4,21 +4,31 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.parents
 import dev.programadorthi.migration.model.AndroidView
+import org.jetbrains.kotlin.android.synthetic.res.AndroidResource
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.findFunctionByName
 import org.jetbrains.kotlin.psi.psiUtil.getValueParameterList
 
 internal class GroupieMigration(
-    packageName: String,
     private val ktClass: KtClass,
-) : CommonMigration(packageName, ktClass) {
+    private val layoutWithResources: Map<String, List<AndroidResource>>,
+) : CommonMigration(ktClass) {
 
     override fun process(androidViews: List<AndroidView>, viewHolderItemViews: List<PsiReference>) {
+        val referencesByFunction = mutableMapOf<KtNamedDeclaration, List<AndroidView>>()
         val bindingReferences = mutableSetOf<String>()
         for (view in androidViews) {
             val parents = view.reference?.element?.parents(true) ?: continue
-            for (parent in parents) {
+            parents
+                .filterIsInstance<KtNamedDeclaration>()
+                .associateWith { it.lookupForGroupieViewHolderParameters() }
+                .filterValues { it.isNotEmpty() }
+                .forEach { (ktNamedDeclaration, _) ->
+                    val currentList = referencesByFunction[ktNamedDeclaration] ?: emptyList()
+                    referencesByFunction[ktNamedDeclaration] = currentList + view
+                }
+            /*for (parent in parents) {
                 if (parent !is KtNamedDeclaration) continue
                 val parameters = parent.lookupForGroupieViewHolderParameters()
                 if (parameters.isEmpty()) continue
@@ -30,11 +40,12 @@ internal class GroupieMigration(
                 bindingReferences += layoutNameAsBinding
                 addBindingToImport(layoutNameAsBinding = layoutNameAsBinding)
                 break
-            }
-            if (view.isIncludeTag) {
+            }*/
+            // FIXME: Groupie include tag support
+            /*if (view.isIncludeTag) {
                 val expression = psiFactory.createExpression(provideBindingExpression(view))
                 view.reference.element.replace(expression)
-            }
+            }*/
         }
 
         // itemView.layoutId can't be replaced by root.layoutId

@@ -1,6 +1,5 @@
 package dev.programadorthi.migration
 
-import com.android.tools.idea.util.androidFacet
 import com.intellij.codeInsight.CodeInsightBundle
 import com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor
 import com.intellij.codeInsight.actions.CodeCleanupCodeProcessor
@@ -16,7 +15,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.LangDataKeys
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
@@ -31,8 +29,6 @@ import com.intellij.psi.search.SearchScope
 import com.intellij.util.ArrayUtil
 import dev.programadorthi.migration.notification.MigrationNotification
 import dev.programadorthi.migration.processor.MigrationProcessor
-import org.jetbrains.android.dom.manifest.cachedValueFromPrimaryManifest
-import org.jetbrains.kotlin.idea.util.module
 import java.util.regex.PatternSyntaxException
 
 class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
@@ -49,47 +45,36 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
             "No project found to do migration"
         }
         MigrationNotification.setProject(project)
-        val element = CommonDataKeys.PSI_ELEMENT.getData(dataContext)
-        if (element == null) {
+        val psiElement = CommonDataKeys.PSI_ELEMENT.getData(dataContext)
+        if (psiElement == null) {
             MigrationNotification.showError("Selecting a module or file is required to do a migration")
             return
         }
-        val packageName = element.module?.androidFacet?.cachedValueFromPrimaryManifest { packageName }?.value
-        val projectContext = PlatformCoreDataKeys.PROJECT_CONTEXT.getData(dataContext)
         val moduleContext = LangDataKeys.MODULE_CONTEXT.getData(dataContext)
-        if (projectContext != null || moduleContext != null) {
-            if (packageName.isNullOrBlank()) {
-                MigrationNotification.showError("No package name found to selected project or module")
+        if (moduleContext != null) {
+            tryModuleMigration(project = project, moduleContext = moduleContext)
+        } else {
+            val dir = when (psiElement) {
+                is PsiDirectoryContainer -> ArrayUtil.getFirstElement(psiElement.directories)
+                is PsiDirectory -> psiElement
+                else -> psiElement.containingFile?.containingDirectory
+            }
+            if (dir == null) {
+                MigrationNotification.showError("No directory selected to do migration")
                 return
             }
-            tryModuleMigration(project, moduleContext, packageName)
-            return
+            tryDirectoryMigration(project = project, dir = dir)
         }
-
-        val dir = when (element) {
-            is PsiDirectoryContainer -> ArrayUtil.getFirstElement(element.directories)
-            is PsiDirectory -> element
-            else -> element.containingFile?.containingDirectory
-        }
-        if (dir == null) {
-            MigrationNotification.showError("No directory selected to do migration")
-            return
-        }
-        if (packageName.isNullOrBlank()) {
-            MigrationNotification.showError("No package name found to directory: $dir")
-            return
-        }
-        tryDirectoryMigration(project, dir, packageName)
     }
 
-    private fun tryModuleMigration(project: Project, moduleContext: Module?, packageName: String) {
+    private fun tryModuleMigration(project: Project, moduleContext: Module?) {
         val selectedFlags = getLayoutModuleOptions(project, moduleContext) ?: return
         PsiDocumentManager.getInstance(project).commitAllDocuments()
 
         val processor: AbstractLayoutCodeProcessor = if (moduleContext != null) {
-            MigrationProcessor(project, moduleContext, packageName)
+            MigrationProcessor(project, moduleContext)
         } else {
-            MigrationProcessor(project, packageName)
+            MigrationProcessor(project)
         }
 
         registerAndRunProcessor(
@@ -99,14 +84,13 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
         )
     }
 
-    private fun tryDirectoryMigration(project: Project, dir: PsiDirectory, packageName: String) {
+    private fun tryDirectoryMigration(project: Project, dir: PsiDirectory) {
         val selectedFlags = getDirectoryFormattingOptions(project, dir) ?: return
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         val processor: AbstractLayoutCodeProcessor = MigrationProcessor(
             project,
             dir,
             selectedFlags.isIncludeSubdirectories,
-            packageName,
         )
 
         registerAndRunProcessor(
