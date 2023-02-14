@@ -1,5 +1,15 @@
 package dev.programadorthi.migration
 
+import com.android.tools.idea.concurrency.addCallback
+import com.android.tools.idea.databinding.module.LayoutBindingModuleCache
+import com.android.tools.idea.databinding.project.LayoutBindingEnabledFacetsProvider
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
+import com.android.tools.idea.gradle.project.GradleProjectInfo
+import com.android.tools.idea.gradle.project.build.invoker.GradleBuildInvoker
+import com.android.tools.idea.gradle.project.build.invoker.TestCompileType
+import com.android.tools.idea.gradle.project.model.GradleAndroidModel
+import com.android.tools.idea.gradle.project.sync.GradleSyncState
+import com.google.common.util.concurrent.MoreExecutors
 import com.intellij.codeInsight.CodeInsightBundle
 import com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor
 import com.intellij.codeInsight.actions.CodeCleanupCodeProcessor
@@ -18,17 +28,22 @@ import com.intellij.openapi.actionSystem.LangDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Conditions
+import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiDirectoryContainer
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.search.SearchScope
 import com.intellij.util.ArrayUtil
+import com.intellij.util.concurrency.Semaphore
 import dev.programadorthi.migration.notification.MigrationNotification
 import dev.programadorthi.migration.processor.MigrationProcessor
+import org.jetbrains.android.util.AndroidUtils
+import org.jetbrains.kotlin.idea.util.module
 import java.util.regex.PatternSyntaxException
 
 class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
@@ -39,20 +54,36 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
         setInjectedContext(true)
     }
 
+    override fun update(e: AnActionEvent) {
+        e.presentation.isEnabledAndVisible = canPerform(e)
+    }
+
     override fun actionPerformed(event: AnActionEvent) {
+        if (!canPerform(event)) {
+            return
+        }
+
         val dataContext = event.dataContext
         val project = requireNotNull(CommonDataKeys.PROJECT.getData(dataContext)) {
             "No project found to do migration"
         }
         MigrationNotification.setProject(project)
         val psiElement = CommonDataKeys.PSI_ELEMENT.getData(dataContext)
-        if (psiElement == null) {
+        val moduleContext = LangDataKeys.MODULE_CONTEXT.getData(dataContext)
+        val module = moduleContext ?: psiElement?.module
+        if (psiElement == null || module == null) {
             MigrationNotification.showError("Selecting a module or file is required to do a migration")
             return
         }
-        val moduleContext = LangDataKeys.MODULE_CONTEXT.getData(dataContext)
+
+        val model = GradleAndroidModel.get(module)
+        if (model == null || model.androidProject.viewBindingOptions?.enabled != true) {
+            MigrationNotification.showError("View Binding not enabled in the build.gradle(.kts)")
+            return
+        }
+
         if (moduleContext != null) {
-            tryModuleMigration(project = project, moduleContext = moduleContext)
+            tryModuleMigration(project = project, module = module)
         } else {
             val dir = when (psiElement) {
                 is PsiDirectoryContainer -> ArrayUtil.getFirstElement(psiElement.directories)
@@ -63,50 +94,94 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
                 MigrationNotification.showError("No directory selected to do migration")
                 return
             }
-            tryDirectoryMigration(project = project, dir = dir)
+            tryDirectoryMigration(project = project, module = module, dir = dir)
         }
     }
 
-    private fun tryModuleMigration(project: Project, moduleContext: Module?) {
-        val selectedFlags = getLayoutModuleOptions(project, moduleContext) ?: return
+    private fun tryModuleMigration(project: Project, module: Module) {
+        val selectedFlags = getLayoutModuleOptions(project, module) ?: return
         PsiDocumentManager.getInstance(project).commitAllDocuments()
-
-        val processor: AbstractLayoutCodeProcessor = if (moduleContext != null) {
-            MigrationProcessor(project, moduleContext)
-        } else {
-            MigrationProcessor(project)
-        }
-
         registerAndRunProcessor(
             project = project,
-            initialProcessor = processor,
+            module = module,
             selectedFlags = selectedFlags,
+            initialProcessor = MigrationProcessor(project, module),
         )
     }
 
-    private fun tryDirectoryMigration(project: Project, dir: PsiDirectory) {
+    private fun tryDirectoryMigration(project: Project, module: Module, dir: PsiDirectory) {
         val selectedFlags = getDirectoryFormattingOptions(project, dir) ?: return
         PsiDocumentManager.getInstance(project).commitAllDocuments()
-        val processor: AbstractLayoutCodeProcessor = MigrationProcessor(
-            project,
-            dir,
-            selectedFlags.isIncludeSubdirectories,
-        )
 
         registerAndRunProcessor(
             project = project,
-            initialProcessor = processor,
+            module = module,
             selectedFlags = selectedFlags,
+            initialProcessor = MigrationProcessor(
+                project,
+                dir,
+                selectedFlags.isIncludeSubdirectories,
+            ),
         )
+    }
+
+    private fun checkGradleBuild(project: Project, module: Module): List<LightBindingClass> {
+        val result = Ref<List<LightBindingClass>>(emptyList())
+
+        ProgressManager.getInstance().runProcessWithProgressSynchronously({
+            val indicator = ProgressManager.getInstance().progressIndicator
+            indicator.isIndeterminate = true
+            val targetDone = Semaphore()
+            targetDone.down()
+            GradleBuildInvoker.getInstance(project).compileJava(
+                modules = arrayOf(module),
+                testCompileType = TestCompileType.NONE,
+            ).addCallback(
+                MoreExecutors.directExecutor(),
+                { taskResult ->
+                    try {
+                        ProgressManager.checkCanceled()
+                        if (taskResult?.isBuildSuccessful == true) {
+                            val enabledFacetsProvider = LayoutBindingEnabledFacetsProvider.getInstance(project)
+                            val bindings = enabledFacetsProvider.getAllBindingEnabledFacets()
+                                .flatMap { facet ->
+                                    val bindingModuleCache = LayoutBindingModuleCache.getInstance(facet)
+                                    bindingModuleCache.bindingLayoutGroups.flatMap { group ->
+                                        bindingModuleCache.getLightBindingClasses(group)
+                                    }
+                                }
+                            result.set(bindings)
+                        } else {
+                            MigrationNotification.showError("Gradle ViewBinding generation finished without success")
+                        }
+                    } finally {
+                        targetDone.up()
+                    }
+                },
+                {
+                    try {
+                        MigrationNotification.showError("Error when generating ViewBinding classes")
+                        it?.printStackTrace()
+                    } finally {
+                        targetDone.up()
+                    }
+                },
+            )
+            targetDone.waitFor()
+            indicator.isIndeterminate = false
+        }, "Generating ViewBinding classes...", true, project)
+
+        return result.get()
     }
 
     private fun registerAndRunProcessor(
         project: Project,
-        initialProcessor: AbstractLayoutCodeProcessor,
+        module: Module,
+        initialProcessor: MigrationProcessor,
         selectedFlags: ReformatFilesOptions,
     ) {
         val shouldOptimizeImports = selectedFlags.isOptimizeImports && !DumbService.getInstance(project).isDumb
-        var processor = initialProcessor
+        var processor: AbstractLayoutCodeProcessor = initialProcessor
 
         registerScopeFilter(processor, selectedFlags.searchScope)
         registerFileMaskFilter(processor, selectedFlags.fileTypeMask)
@@ -123,7 +198,11 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
             processor = CodeCleanupCodeProcessor(processor)
         }
 
-        processor.run()
+        val bindingClasses = checkGradleBuild(project, module)
+        if (bindingClasses.isNotEmpty()) {
+            initialProcessor.addBindingClasses(bindingClasses)
+            processor.run()
+        }
     }
 
     private fun registerFileMaskFilter(processor: AbstractLayoutCodeProcessor, fileTypeMask: String?) {
@@ -179,5 +258,12 @@ class MigrationAction : AnAction(), DumbAware, LightEditCompatible {
             return dialog
         }
         return null
+    }
+
+    private fun canPerform(e: AnActionEvent): Boolean {
+        val project = e.project ?: return false
+        return GradleProjectInfo.getInstance(project).isBuildWithGradle &&
+                !GradleSyncState.getInstance(project).isSyncInProgress &&
+                AndroidUtils.hasAndroidFacets(project)
     }
 }

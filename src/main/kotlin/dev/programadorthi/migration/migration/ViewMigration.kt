@@ -1,6 +1,7 @@
 package dev.programadorthi.migration.migration
 
 import android.databinding.tool.writer.ViewBinder
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.android.tools.idea.kotlin.getQualifiedName
 import dev.programadorthi.migration.model.BindingData
 import dev.programadorthi.migration.model.BindingFunction
@@ -10,7 +11,8 @@ import org.jetbrains.kotlin.psi.KtClass
 internal class ViewMigration(
     private val ktClass: KtClass,
     bindingData: List<BindingData>,
-) : CommonAndroidClassMigration(ktClass, bindingData) {
+    bindingClass: List<LightBindingClass>,
+) : CommonAndroidClassMigration(ktClass, bindingData, bindingClass) {
     override fun mapToFunctionAndType(
         bindingClassName: String,
         propertyName: String,

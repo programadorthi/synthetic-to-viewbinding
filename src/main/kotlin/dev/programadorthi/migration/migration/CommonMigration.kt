@@ -1,7 +1,5 @@
 package dev.programadorthi.migration.migration
 
-import android.databinding.tool.ext.capitalizeUS
-import android.databinding.tool.ext.stripNonJava
 import com.intellij.psi.PsiReference
 import dev.programadorthi.migration.model.AndroidView
 import dev.programadorthi.migration.visitor.SyntheticReferenceRecursiveVisitor
@@ -27,9 +25,6 @@ abstract class CommonMigration(
     protected fun addGenericImport(import: String) {
         mutableBindingsToImport += import
     }
-
-    protected fun String.layoutToBindingName(): String =
-        stripNonJava().capitalizeUS() + "Binding"
 
     protected abstract fun process(androidViews: List<AndroidView>, viewHolderItemViews: List<PsiReference>)
 }

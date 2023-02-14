@@ -1,9 +1,8 @@
 package dev.programadorthi.migration.migration
 
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
-import com.intellij.psi.impl.PsiClassImplUtil
-import com.intellij.psi.util.ClassUtil
 import com.intellij.psi.util.InheritanceUtil
 import dev.programadorthi.migration.model.BindingData
 import org.jetbrains.kotlin.android.synthetic.AndroidConst
@@ -12,15 +11,20 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 
 internal object MigrationHelper {
 
-    fun tryMigrate(psiClass: PsiClass, ktClass: KtClass, bindingData: List<BindingData>): Set<String> {
+    fun tryMigrate(
+        psiClass: PsiClass,
+        ktClass: KtClass,
+        bindingData: List<BindingData>,
+        bindingClass: List<LightBindingClass>,
+    ): Set<String> {
         val bindingsToImport = mutableSetOf<String>()
         val parents = InheritanceUtil.getSuperClasses(psiClass)
         for (parent in parents) {
             val migration: CommonMigration = when (parent.qualifiedName) {
                 AndroidConst.ACTIVITY_FQNAME,
-                AndroidConst.DIALOG_FQNAME -> ClassWithSetContentViewMigration(ktClass, bindingData)
+                AndroidConst.DIALOG_FQNAME -> ClassWithSetContentViewMigration(ktClass, bindingData, bindingClass)
 
-                AndroidConst.VIEW_FQNAME -> ViewMigration(ktClass, bindingData)
+                AndroidConst.VIEW_FQNAME -> ViewMigration(ktClass, bindingData, bindingClass)
 
                 /*FileMigration.GROUPIE_ITEM_CLASS,
                 FileMigration.GROUPIE_VIEW_HOLDER_CLASS -> GroupieMigration(

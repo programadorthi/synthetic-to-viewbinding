@@ -5,6 +5,7 @@ import android.databinding.tool.store.ResourceBundle
 import android.databinding.tool.util.RelativizableFile
 import android.databinding.tool.writer.BaseLayoutModel
 import android.databinding.tool.writer.toViewBinder
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.android.tools.idea.util.toIoFile
 import dev.programadorthi.migration.model.BindingData
 import org.jetbrains.kotlin.android.model.AndroidModuleInfoProvider
@@ -35,6 +36,7 @@ internal object FileMigration {
 
     fun migrate(
         ktFile: KtFile,
+        bindingClass: List<LightBindingClass>,
         applicationPackage: String,
         moduleInfoProvider: AndroidModuleInfoProvider,
         parcelizeStatusProvider: ParcelizeStatusProvider,
@@ -48,6 +50,7 @@ internal object FileMigration {
         } else {
             lookupForReferences(
                 ktFile = ktFile,
+                bindingClass = bindingClass,
                 applicationPackage = applicationPackage,
                 syntheticImports = syntheticImports,
                 moduleInfoProvider = moduleInfoProvider,
@@ -57,6 +60,7 @@ internal object FileMigration {
 
     private fun lookupForReferences(
         ktFile: KtFile,
+        bindingClass: List<LightBindingClass>,
         applicationPackage: String,
         syntheticImports: List<KtImportDirective>,
         moduleInfoProvider: AndroidModuleInfoProvider,
@@ -135,7 +139,7 @@ internal object FileMigration {
                 "${model.bindingClassPackage}.${model.bindingClassName}"
             }
         )
-        bindingsToImport.addAll(processEachClass(ktFile, bindingData))
+        bindingsToImport.addAll(processEachClass(ktFile, bindingData, bindingClass))
 
         if (syntheticImports.any(::isParcelize)) {
             bindingsToImport.addAll(parcelizeImports)
@@ -147,7 +151,11 @@ internal object FileMigration {
         }
     }
 
-    private fun processEachClass(ktFile: KtFile, bindingData: List<BindingData>): Set<String> {
+    private fun processEachClass(
+        ktFile: KtFile,
+        bindingData: List<BindingData>,
+        bindingClass: List<LightBindingClass>,
+    ): Set<String> {
         val bindingsToImport = mutableSetOf<String>()
         for (psiClass in ktFile.classes) {
             val currentClass = when (psiClass) {
@@ -155,7 +163,7 @@ internal object FileMigration {
                 is KtClass -> psiClass
                 else -> error("Not supported class type to migrate --> ${psiClass.name}")
             }
-            bindingsToImport.addAll(MigrationHelper.tryMigrate(psiClass, currentClass, bindingData))
+            bindingsToImport.addAll(MigrationHelper.tryMigrate(psiClass, currentClass, bindingData, bindingClass))
         }
 
         for (func in ktFile.children.filterIsInstance<KtNamedFunction>()) {

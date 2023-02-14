@@ -1,5 +1,6 @@
 package dev.programadorthi.migration.processor
 
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
@@ -27,15 +28,9 @@ import java.util.concurrent.FutureTask
 internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStatusProvider, ParcelizeStatusProvider {
     private val log = Logger.getInstance(MigrationProcessor::class.java)
 
+    private val bindingClass = mutableListOf<LightBindingClass>()
     private val buildGradleStatus = ConcurrentHashMap<String, MigrationStatus>()
     private val parcelizeStatus = ConcurrentHashMap<String, MigrationStatus>()
-
-    constructor(project: Project) : super(
-        project,
-        getCommandName(),
-        getProgressText(),
-        false,
-    )
 
     constructor(project: Project, module: Module) : super(
         project,
@@ -45,7 +40,11 @@ internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStat
         false,
     )
 
-    constructor(project: Project, directory: PsiDirectory, includeSubdirs: Boolean) : super(
+    constructor(
+        project: Project,
+        directory: PsiDirectory,
+        includeSubdirs: Boolean,
+    ) : super(
         project,
         directory,
         includeSubdirs,
@@ -79,6 +78,10 @@ internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStat
         parcelizeStatus[path] = status
     }
 
+    fun addBindingClasses(bindingClass: List<LightBindingClass>) {
+        this.bindingClass.addAll(bindingClass)
+    }
+
     private fun doMigration(file: PsiFile): Boolean {
         try {
             val document = PsiDocumentManager.getInstance(myProject).getDocument(file)
@@ -103,6 +106,7 @@ internal class MigrationProcessor : AbstractLayoutCodeProcessor, BuildGradleStat
                             } else {
                                 FileMigration.migrate(
                                     ktFile = file,
+                                    bindingClass = bindingClass,
                                     applicationPackage = applicationPackage,
                                     moduleInfoProvider = provider,
                                     parcelizeStatusProvider = this@MigrationProcessor,

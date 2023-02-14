@@ -3,7 +3,9 @@ package dev.programadorthi.migration.migration
 import android.databinding.tool.ext.parseXmlResourceReference
 import android.databinding.tool.store.ResourceBundle
 import android.databinding.tool.writer.ViewBinder
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.intellij.psi.PsiReference
+import dev.programadorthi.migration.ext.layoutToBindingName
 import dev.programadorthi.migration.model.AndroidView
 import dev.programadorthi.migration.model.BindingData
 import dev.programadorthi.migration.model.BindingFunction
@@ -14,6 +16,7 @@ import org.jetbrains.kotlin.psi.KtClassInitializer
 abstract class CommonAndroidClassMigration(
     private val ktClass: KtClass,
     private val bindingData: List<BindingData>,
+    private val bindingClass: List<LightBindingClass>,
 ) : CommonMigration(ktClass) {
     private val bindingPropertyToCreate = mutableSetOf<String>()
     private val includePropertyToCreate = mutableSetOf<String>()
@@ -77,6 +80,7 @@ abstract class CommonAndroidClassMigration(
         }
 
         // The loop order matters
+        addBlankSpace()
         for (property in syntheticBindingPropertyToCreate) {
             addProperty(content = property)
         }
@@ -142,6 +146,11 @@ abstract class CommonAndroidClassMigration(
 
     private fun createViewStubProperty(viewBindingPropertyName: String, viewId: String, layoutName: String?) {
         val bindingClassName = layoutName?.layoutToBindingName() ?: return
+        bindingClass.filter { klass ->
+            klass.name == bindingClassName
+        }.forEach { klass ->
+            addGenericImport(klass.qualifiedName)
+        }
         syntheticBindingPropertyToCreate += SYNTHETIC_BINDING_WITH_VIEW_STUB_AS_LAZY_TEMPLATE.format(
             viewId, viewBindingPropertyName, viewId, bindingClassName,
         )
