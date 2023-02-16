@@ -7,6 +7,7 @@ import android.databinding.tool.writer.BaseLayoutModel
 import android.databinding.tool.writer.toViewBinder
 import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.android.tools.idea.util.toIoFile
+import com.intellij.psi.util.InheritanceUtil
 import dev.programadorthi.migration.model.BindingData
 import org.jetbrains.kotlin.android.model.AndroidModuleInfoProvider
 import org.jetbrains.kotlin.android.synthetic.AndroidConst
@@ -27,11 +28,7 @@ import java.io.File
 import java.nio.file.Files
 
 internal object FileMigration {
-    private const val GROUPIE_PACKAGE_PREFIX = "com.xwray.groupie.kotlinandroidextensions"
     private const val PARCELIZE_PACKAGE_PREFIX = "kotlinx.android.parcel"
-    const val GROUPIE_ITEM_CLASS = "$GROUPIE_PACKAGE_PREFIX.Item"
-    const val GROUPIE_VIEW_HOLDER_CLASS = "$GROUPIE_PACKAGE_PREFIX.GroupieViewHolder"
-
     private val parcelizeImports = setOf("kotlinx.parcelize.Parcelize")
 
     fun migrate(
@@ -163,13 +160,13 @@ internal object FileMigration {
                 is KtClass -> psiClass
                 else -> error("Not supported class type to migrate --> ${psiClass.name}")
             }
-            bindingsToImport.addAll(MigrationHelper.tryMigrate(psiClass, currentClass, bindingData, bindingClass))
+            val parents = InheritanceUtil.getSuperClasses(psiClass).mapNotNull { it.qualifiedName }.toSet()
+            val migration = CommonMigration.getInstance(parents, currentClass, bindingData, bindingClass)
+            if (migration != null) {
+                migration.doMigration()
+                bindingsToImport.addAll(migration.bindingsToImport)
+            }
         }
-
-        for (func in ktFile.children.filterIsInstance<KtNamedFunction>()) {
-            TODO("lookup for top-level functions using synthetic refenreces")
-        }
-
         return bindingsToImport
     }
 
@@ -200,7 +197,7 @@ internal object FileMigration {
     private fun shouldIMigrate(importDirective: KtImportDirective): Boolean {
         val pathStr = importDirective.importPath?.pathStr ?: return false
         return pathStr.startsWith(AndroidConst.SYNTHETIC_PACKAGE) ||
-                pathStr.startsWith(GROUPIE_PACKAGE_PREFIX) ||
+                pathStr.startsWith(CommonMigration.GROUPIE_PACKAGE_PREFIX) ||
                 isParcelize(importDirective)
     }
 }

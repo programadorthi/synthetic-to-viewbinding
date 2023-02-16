@@ -1,23 +1,27 @@
 package dev.programadorthi.migration.migration
 
+import com.android.tools.idea.databinding.psiclass.LightBindingClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.parents
+import dev.programadorthi.migration.ext.layoutToBindingName
 import dev.programadorthi.migration.model.AndroidView
-import org.jetbrains.kotlin.android.synthetic.res.AndroidResource
+import dev.programadorthi.migration.model.BindingData
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.KtTypeReference
 import org.jetbrains.kotlin.psi.psiUtil.findFunctionByName
 import org.jetbrains.kotlin.psi.psiUtil.getValueParameterList
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 
 internal class GroupieMigration(
     private val ktClass: KtClass,
-    private val layoutWithResources: Map<String, List<AndroidResource>>,
+    private val bindingClass: List<LightBindingClass>,
 ) : CommonMigration(ktClass) {
 
     override fun process(androidViews: List<AndroidView>, viewHolderItemViews: List<PsiReference>) {
+        // If you are using more functions than bind(GroupieViewHolder, Int), we look for them
         val referencesByFunction = mutableMapOf<KtNamedDeclaration, List<AndroidView>>()
-        val bindingReferences = mutableSetOf<String>()
         for (view in androidViews) {
             val parents = view.reference?.element?.parents(true) ?: continue
             parents
@@ -28,24 +32,36 @@ internal class GroupieMigration(
                     val currentList = referencesByFunction[ktNamedDeclaration] ?: emptyList()
                     referencesByFunction[ktNamedDeclaration] = currentList + view
                 }
-            /*for (parent in parents) {
-                if (parent !is KtNamedDeclaration) continue
-                val parameters = parent.lookupForGroupieViewHolderParameters()
-                if (parameters.isEmpty()) continue
-                val layoutNameAsBinding = layoutNameAsBinding(view.layoutNameWithoutExtension)
+        }
+
+        val bindingReferences = mutableSetOf<LightBindingClass>()
+        for ((func, views) in referencesByFunction) {
+            val candidates = mutableListOf<LightBindingClass>()
+            val idsInsideFunction = views.map { it.viewId }.toSet()
+            val bindingNames = views.map { androidView ->
+                androidView.layoutNameWithoutExtension.layoutToBindingName()
+            }.toSet()
+            for (bindingName in bindingNames) {
+                val candidatesByName = bindingClass
+                    .filter { klass -> klass.name == bindingName }
+                    .associateWith { it.fields }
+                for ((candidateClass, fields) in candidatesByName) {
+                    val fieldNames = fields.map { it.name }.toSet()
+                    if (fieldNames.containsAll(idsInsideFunction)) {
+                        candidates += candidateClass
+                    }
+                }
+            }
+            // Not found or multiple references are not supported
+            if (candidates.size == 1) {
+                val candidate = candidates.first()
                 replaceFunctionParameterType(
-                    parameters = parameters,
-                    layoutNameAsBinding = layoutNameAsBinding,
+                    parameters = func.lookupForGroupieViewHolderParameters(),
+                    layoutNameAsBinding = candidate.name,
                 )
-                bindingReferences += layoutNameAsBinding
-                addBindingToImport(layoutNameAsBinding = layoutNameAsBinding)
-                break
-            }*/
-            // FIXME: Groupie include tag support
-            /*if (view.isIncludeTag) {
-                val expression = psiFactory.createExpression(provideBindingExpression(view))
-                view.reference.element.replace(expression)
-            }*/
+                addGenericImport(candidate.qualifiedName)
+            }
+            bindingReferences.addAll(candidates)
         }
 
         // itemView.layoutId can't be replaced by root.layoutId
@@ -66,12 +82,12 @@ internal class GroupieMigration(
 
         val bindingName = when {
             bindingReferences.size > 2 -> "ViewBinding"
-            else -> bindingReferences.first()
+            else -> bindingReferences.first().name
         }
 
-        tryUpdateViewAttachedOrDetachedFromWindow(bindingName = bindingName)
-        tryReplaceSuperType(bindingName = bindingName)
-        tryAddInitializeBindingFunction(bindingName = bindingName)
+        tryUpdateViewAttachedOrDetachedFromWindow(bindingName)
+        tryReplaceSuperType(bindingName)
+        tryAddInitializeBindingFunction(bindingName)
     }
 
     private fun tryUpdateViewAttachedOrDetachedFromWindow(bindingName: String) {
@@ -80,9 +96,9 @@ internal class GroupieMigration(
         if (onViewParams.isEmpty()) return
         replaceFunctionParameterType(
             parameters = onViewParams,
-            layoutNameAsBinding = "GroupieViewHolder<$bindingName>",
+            layoutNameAsBinding = "$GROUPIE_VIEW_HOLDER<$bindingName>",
         )
-        addGenericImport("com.xwray.groupie.viewbinding.GroupieViewHolder")
+        addGenericImport("com.xwray.groupie.viewbinding.$GROUPIE_VIEW_HOLDER")
     }
 
     private fun tryReplaceSuperType(bindingName: String) {
@@ -128,11 +144,29 @@ internal class GroupieMigration(
     }
 
     private fun KtNamedDeclaration.lookupForGroupieViewHolderParameters(): List<PsiElement> {
-        val parameters = getValueParameterList()?.parameters ?: return emptyList()
-        return parameters.map {
+        val extensionFunctionType = children.firstIsInstanceOrNull<KtTypeReference>()
+        val usedAsExtensionType = extensionFunctionType?.text?.contains(GROUPIE_VIEW_HOLDER)
+        val parameters = getValueParameterList()?.parameters ?: emptyList()
+        val groupieViewHolderParameters = parameters.map {
             it.children.toList()
         }.flatten().filter {
-            it.text.startsWith("GroupieViewHolder")
+            it.text.startsWith(GROUPIE_VIEW_HOLDER)
         }
+        if (usedAsExtensionType == true) {
+            if (groupieViewHolderParameters.isNotEmpty()) {
+                // Well, how to solve type as extension and parameter in the same function?
+                //
+                // fun GroupieViewHolder.doSomething(viewHolder: GroupieViewHolder) {
+                //     impossible to know what synthetics are used here
+                // }
+                return emptyList()
+            }
+            return listOf(extensionFunctionType)
+        }
+        return groupieViewHolderParameters
+    }
+
+    private companion object {
+        private const val GROUPIE_VIEW_HOLDER = "GroupieViewHolder"
     }
 }
