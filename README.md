@@ -7,6 +7,24 @@ A Intellij plugin to migrate Kotlin synthetics to Jetpack view binding
 
 #### This plugin supports kotlin source and build.gradle(.kts) files only.
 
+## How to use
+1. Install the plugin from Marketplace (link soon)
+2. On the android module, enable viewBinding in your build.gradle(.kts)
+```groovy
+android {
+    // New AGP version setup
+    viewBinding.enable = true
+    // Old AGP version setup
+    buildFeatures {
+        viewBinding true
+    }
+}
+```
+3. Right click on your class or module and select the menu: `Refactor -> Migrate Synthetic to ViewBinding`
+4. In the popup select your options, filters and click in the button `Run`.
+
+> Popup options are from your IDE code styles settings and run after view binding migration. 
+
 ## Features
 
 - Activity, Dialog, ViewGroup and View migration
