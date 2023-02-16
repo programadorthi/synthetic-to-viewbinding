@@ -16,7 +16,7 @@
 <li>Update @Parcelize imports and add plugin to build(.gradle|.kts)</li>
 <li>Organize imports, Reformat code, Code cleanup based on your IDE code style settings</li>
 </ul>
-<p>Find more information on my <a href="https://github.com/programadorthi/synthetic-migration-plugin">repository</a></p>
+<p>Find more information on my <a href="https://github.com/programadorthi/synthetic-to-viewbinding">repository</a></p>
   ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.lang</depends>
